@@ -174,3 +174,44 @@ def delete_product(connection, product_id):
             f"Product {product_id} has sales history, so it cannot be deleted."
         ) from exc
     return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------ search
+
+
+def search_products(
+    connection,
+    text,
+    category=None,
+    max_price_cents=None,
+    in_stock_only=False,
+    low_stock_only=False,
+):
+    """Find products whose name, SKU or supplier name contains the text.
+
+    The optional filters can be combined. Results are sorted by name.
+    """
+    # One fixed query. A filter is switched off by passing None or False, so no SQL
+    # text is ever built from the values: they all travel as named placeholders.
+    return connection.execute(
+        """
+        SELECT p.id, p.sku, p.name, p.category, s.name AS supplier_name,
+               p.unit_price_cents, p.quantity_in_stock, p.reorder_level
+        FROM products AS p
+        JOIN suppliers AS s ON s.id = p.supplier_id
+        WHERE (p.name LIKE '%' || :text || '%'
+               OR p.sku LIKE '%' || :text || '%'
+               OR s.name LIKE '%' || :text || '%')
+          AND (:category IS NULL OR p.category = :category)
+          AND (:max_price_cents IS NULL OR p.unit_price_cents <= :max_price_cents)
+          AND (:in_stock_only = 0 OR p.quantity_in_stock > 0)
+          AND (:low_stock_only = 0 OR p.quantity_in_stock <= p.reorder_level)
+        ORDER BY p.name
+        """,
+        {
+            "text": text,
+            "category": category,
+            "max_price_cents": max_price_cents,
+            "in_stock_only": in_stock_only,
+            "low_stock_only": low_stock_only,
+        },
+    ).fetchall()

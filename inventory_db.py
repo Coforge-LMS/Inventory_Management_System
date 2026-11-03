@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -288,3 +289,109 @@ def format_cents(cents):
     """Show whole cents as dollars with two decimals, e.g. 1250 becomes '12.50'."""
     dollars, remainder = divmod(cents, 100)
     return f"{dollars}.{remainder:02d}"
+
+
+# ------------------------------------------------------------ stock and sales
+
+
+def _timestamp(now):
+    """Return a time as ISO 8601 text, using the current time when none is given."""
+    if now is None:
+        now = datetime.now()
+    return now.isoformat(timespec="seconds")
+
+
+def _move_stock(connection, product_id, change, reason, moment):
+    """Change a product's stock by a signed amount and log the movement.
+
+    This only runs SQL and never commits. The caller's `with connection:` block
+    decides whether both steps are kept or both are undone.
+    """
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE products
+            SET quantity_in_stock = quantity_in_stock + ?
+            WHERE id = ?
+            """,
+            (change, product_id),
+        )
+    except sqlite3.IntegrityError as exc:
+        # The only rule this UPDATE can break is "stock cannot be negative".
+        raise InsufficientStockError(
+            f"Not enough stock of product {product_id} for a change of {change}."
+        ) from exc
+    if cursor.rowcount == 0:
+        raise UnknownProductError(f"There is no product with id {product_id}.")
+    connection.execute(
+        """
+        INSERT INTO stock_movements (product_id, quantity_change, reason, moved_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (product_id, change, reason, moment),
+    )
+
+
+def _add_sale_line(connection, sale_id, product_id, quantity, moment):
+    """Save one sale line at the product's current price, then reduce and log stock.
+
+    Like _move_stock, this never commits.
+    """
+    product = connection.execute(
+        "SELECT unit_price_cents FROM products WHERE id = ?", (product_id,)
+    ).fetchone()
+    if product is None:
+        raise UnknownProductError(f"There is no product with id {product_id}.")
+    try:
+        connection.execute(
+            """
+            INSERT INTO sale_items (sale_id, product_id, quantity, unit_price_cents)
+            VALUES (?, ?, ?, ?)
+            """,
+            (sale_id, product_id, quantity, product["unit_price_cents"]),
+        )
+    except sqlite3.IntegrityError as exc:
+        # The product exists and the quantity was checked, so the only rule left
+        # is "one line per product in a sale".
+        raise DuplicateLineError(
+            f"Product {product_id} appears more than once in this sale."
+        ) from exc
+    _move_stock(connection, product_id, -quantity, "sale", moment)
+
+
+def restock(connection, product_id, amount, now=None):
+    """Add stock to a product and log a restock movement, as one transaction."""
+    if amount <= 0:
+        raise InvalidValueError("The restock amount must be more than 0.")
+    moment = _timestamp(now)
+    with connection:
+        _move_stock(connection, product_id, amount, "restock", moment)
+
+
+def adjust_stock(connection, product_id, change, now=None):
+    """Change stock by a signed amount (damage, recount) and log an adjustment."""
+    if change == 0:
+        raise InvalidValueError("An adjustment cannot be 0.")
+    moment = _timestamp(now)
+    with connection:
+        _move_stock(connection, product_id, change, "adjustment", moment)
+
+
+def record_sale(connection, items, now=None):
+    """Record a sale of (product_id, quantity) pairs and return the new sale id.
+
+    It all happens in one transaction. If any line fails, the whole sale is
+    undone, including the lines that were already written.
+    """
+    if not items or any(quantity <= 0 for _, quantity in items):
+        raise InvalidValueError(
+            "A sale needs at least one item, and every quantity must be more than 0."
+        )
+    moment = _timestamp(now)
+    with connection:
+        sale_id = connection.execute(
+            "INSERT INTO sales (sold_at) VALUES (?)", (moment,)
+        ).lastrowid
+        for product_id, quantity in items:
+            _add_sale_line(connection, sale_id, product_id, quantity, moment)
+    return sale_id

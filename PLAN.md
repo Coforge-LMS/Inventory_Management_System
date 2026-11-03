@@ -82,7 +82,7 @@ All of these live in `inventory_db.py`. Every function except `get_db_path` and 
 
 ## 4. Restock, adjust and record a sale
 
-Each of these runs inside one `with connection:` block. The block commits when it ends normally and rolls back if an exception leaves it. The helpers, `_change_stock` and `_log_movement`, only run SQL and never commit, so they can't save half a change. `now` is a datetime that defaults to None, and a small helper fills in the current time inside the function. A default of `datetime.now()` would be fixed once, when the function is defined.
+Each of these runs inside one `with connection:` block. The block commits when it ends normally and rolls back if an exception leaves it. The helpers only run SQL and never commit, so they can’t save half a change. _move_stock changes a product’s stock and logs the movement together, and _add_sale_line handles one line of a sale. `now` is a datetime that defaults to None, and a small helper fills in the current time inside the function. A default of `datetime.now()` would be fixed once, when the function is defined.
 
 ### restock(connection, product_id, amount, now=None)
 1. If amount is 0 or less, raise InvalidValueError. Nothing has been written yet.

@@ -215,3 +215,76 @@ def search_products(
             "low_stock_only": low_stock_only,
         },
     ).fetchall()
+
+
+# ----------------------------------------------------------------- reports
+
+
+def stock_value_by_supplier(connection):
+    """Return each supplier's name and stock value in cents, highest first.
+
+    Suppliers with no products are left out.
+    """
+    return connection.execute(
+        """
+        SELECT s.name AS supplier_name,
+               SUM(p.unit_price_cents * p.quantity_in_stock) AS stock_value_cents
+        FROM suppliers AS s
+        JOIN products AS p ON p.supplier_id = s.id
+        GROUP BY s.id, s.name
+        ORDER BY stock_value_cents DESC, s.name
+        """
+    ).fetchall()
+
+
+def low_stock_report(connection):
+    """Return every product at or below its reorder level, and how many units short."""
+    return connection.execute(
+        """
+        SELECT sku, name, quantity_in_stock, reorder_level,
+               reorder_level - quantity_in_stock AS units_short
+        FROM products
+        WHERE quantity_in_stock <= reorder_level
+        ORDER BY units_short DESC, name
+        """
+    ).fetchall()
+
+
+def sales_by_product(connection):
+    """Return units sold and revenue in cents for each product that has sold."""
+    # Revenue uses the price stored on each sale line, not the product's current
+    # price, so later price changes do not rewrite history.
+    return connection.execute(
+        """
+        SELECT p.sku, p.name,
+               SUM(si.quantity) AS units_sold,
+               SUM(si.quantity * si.unit_price_cents) AS revenue_cents
+        FROM products AS p
+        JOIN sale_items AS si ON si.product_id = p.id
+        GROUP BY p.id, p.sku, p.name
+        ORDER BY revenue_cents DESC, p.name
+        """
+    ).fetchall()
+
+
+def never_sold_products(connection):
+    """Return the products that appear in no sale."""
+    return connection.execute(
+        """
+        SELECT p.sku, p.name
+        FROM products AS p
+        WHERE NOT EXISTS (
+            SELECT 1 FROM sale_items AS si WHERE si.product_id = p.id
+        )
+        ORDER BY p.name
+        """
+    ).fetchall()
+
+
+# ------------------------------------------------------------------- display
+
+
+def format_cents(cents):
+    """Show whole cents as dollars with two decimals, e.g. 1250 becomes '12.50'."""
+    dollars, remainder = divmod(cents, 100)
+    return f"{dollars}.{remainder:02d}"

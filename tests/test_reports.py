@@ -4,6 +4,7 @@ import pytest
 
 import inventory_db
 
+
 def as_tuples(rows):
     """Turn Row objects into plain tuples, so they can be compared with ==."""
     return [tuple(row) for row in rows]

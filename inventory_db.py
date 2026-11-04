@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -395,3 +396,14 @@ def record_sale(connection, items, now=None):
         for product_id, quantity in items:
             _add_sale_line(connection, sale_id, product_id, quantity, moment)
     return sale_id
+
+# ------------------------------------------------------------------- backup
+
+
+def backup_database(connection, destination_path):
+    """Copy the whole database to a file using SQLite's backup function.
+
+    An existing file at the destination is overwritten.
+    """
+    with closing(connect(destination_path)) as destination:
+        connection.backup(destination)

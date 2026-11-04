@@ -229,6 +229,10 @@ MENU = [
 ]
 ACTIONS = {str(number): action for number, (_, action) in enumerate(MENU, start=1)}
 
+def print_banner(connection):
+    """Show how many products are at or below their reorder level."""
+    low_stock_count = len(inventory_db.low_stock_report(connection))
+    print(f"Low stock products: {low_stock_count}")
 
 def print_menu():
     print("\nInventory menu")
@@ -261,6 +265,7 @@ def run_menu(connection):
 def main():
     with closing(inventory_db.connect(inventory_db.get_db_path())) as connection:
         inventory_db.init_schema(connection)
+        print_banner(connection)
         try:
             run_menu(connection)
         except (EOFError, KeyboardInterrupt):

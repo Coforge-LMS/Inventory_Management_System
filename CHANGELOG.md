@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0] - 2026-11-04
+
+### Added
+- Startup banner in the menu showing the number of low stock products.
+
 ## [1.0.0] - 2026-11-04
 
 ### Added
